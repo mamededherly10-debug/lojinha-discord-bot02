@@ -1,0 +1,1 @@
+# lojinha-discord-bot02
