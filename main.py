@@ -17,7 +17,6 @@ produtos = {
 async def setup_db():
     async with aiosqlite.connect("db.sqlite") as db:
         await db.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, saldo INTEGER)")
-        await db.execute("CREATE TABLE IF NOT EXISTS carrinho (user_id TEXT, produto TEXT)")
         await db.execute("CREATE TABLE IF NOT EXISTS estoque (produto TEXT, conteudo TEXT)")
         await db.commit()
 
@@ -57,27 +56,51 @@ class ComprarButton(discord.ui.Button):
             await interaction.response.send_message("❌ Saldo insuficiente!", ephemeral=True)
             return
 
+        async with aiosqlite.connect("db.sqlite") as db:
+            cur = await db.execute("SELECT conteudo FROM estoque WHERE produto=?", (self.produto,))
+            item = await cur.fetchone()
+
+            if not item:
+                await interaction.response.send_message("❌ Produto sem estoque!", ephemeral=True)
+                return
+
+            await db.execute("DELETE FROM estoque WHERE produto=? LIMIT 1", (self.produto,))
+            await db.commit()
+
         await add_saldo(user_id, -preco)
-        await interaction.response.send_message(f"✅ Comprou {self.produto}!", ephemeral=True)
+
+        await interaction.response.send_message("✅ Compra realizada! Veja seu privado 📩", ephemeral=True)
+
+        try:
+            await interaction.user.send(f"📦 Seu produto: {item[0]}")
+        except:
+            pass
 
 @bot.command()
 async def loja(ctx):
-    embed = discord.Embed(title="🛒 Loja TOP", color=discord.Color.green())
+    embed = discord.Embed(title="🛒 Loja", color=discord.Color.green())
     for nome, preco in produtos.items():
         embed.add_field(name=nome, value=f"{preco} moedas", inline=False)
-
     await ctx.send(embed=embed, view=LojaView())
 
 @bot.command()
 async def saldo(ctx):
     saldo = await get_saldo(str(ctx.author.id))
-    await ctx.send(f"💰 Seu saldo: {saldo}")
+    await ctx.send(f"💰 Saldo: {saldo}")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def addsaldo(ctx, user: discord.Member, valor: int):
     await add_saldo(str(user.id), valor)
     await ctx.send("💸 Saldo adicionado!")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def estoque(ctx, produto, *, conteudo):
+    async with aiosqlite.connect("db.sqlite") as db:
+        await db.execute("INSERT INTO estoque VALUES (?, ?)", (produto, conteudo))
+        await db.commit()
+    await ctx.send("📦 Produto adicionado ao estoque!")
 
 @bot.event
 async def on_ready():
